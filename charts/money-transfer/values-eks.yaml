@@ -1,0 +1,7 @@
+# EKS overrides: run more headroom across three AZs.
+autoscaling:
+  minReplicas: 3
+  maxReplicas: 10
+
+podDisruptionBudget:
+  minAvailable: 2

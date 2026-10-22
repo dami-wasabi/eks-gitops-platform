@@ -1,0 +1,10 @@
+apiVersion: v2
+name: money-transfer
+description: Money transfer quote service - hardened Deployment with autoscaling, a disruption budget, network policy and a Gateway API route.
+type: application
+version: 1.0.0
+# Tracks the application image built from github.com/dami-wasabi/money-transfer
+appVersion: "sha-aa4159ee0eca59ef8382b97680e35211c5344ad3"
+home: https://github.com/dami-wasabi/money-transfer
+sources:
+  - https://github.com/dami-wasabi/money-transfer

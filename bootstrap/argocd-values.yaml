@@ -1,0 +1,30 @@
+# Helm values for Argo CD itself, shared by the kind script and Terraform.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+
+configs:
+  params:
+    # TLS is terminated in front of the UI (or it's reached via port-forward).
+    server.insecure: true
+  cm:
+    # Report child Application health up to the root app, so sync waves in the
+    # app-of-apps actually wait for each layer to become healthy.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+  repositories:
+    envoy-gateway:
+      name: envoy-gateway
+      type: helm
+      url: registry-1.docker.io/envoyproxy
+      enableOCI: "true"

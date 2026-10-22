@@ -1,0 +1,20 @@
+# Everything Argo CD runs on the EKS cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../apps
+patches:
+  - target:
+      kind: Application
+      name: gateway
+    patch: |-
+      - op: replace
+        path: /spec/source/path
+        value: platform/gateway/overlays/eks
+  - target:
+      kind: Application
+      name: money-transfer
+    patch: |-
+      - op: replace
+        path: /spec/source/helm/valueFiles
+        value: [values.yaml, values-eks.yaml]

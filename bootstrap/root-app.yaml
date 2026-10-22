@@ -1,0 +1,22 @@
+# The single Application you apply by hand. It points Argo CD at a cluster
+# folder in gitops/clusters/, and Argo CD manages everything else from Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dami-wasabi/eks-gitops-platform.git
+    targetRevision: main
+    path: gitops/clusters/kind
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
