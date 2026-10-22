@@ -4,7 +4,7 @@ description: Money transfer quote service - hardened Deployment with autoscaling
 type: application
 version: 1.0.0
 # Tracks the application image built from github.com/dami-wasabi/money-transfer
-appVersion: "sha-aa4159ee0eca59ef8382b97680e35211c5344ad3"
+appVersion: "sha-476249c970a9282fabb11bf928d43d3a7d1a6611"
 home: https://github.com/dami-wasabi/money-transfer
 sources:
   - https://github.com/dami-wasabi/money-transfer
