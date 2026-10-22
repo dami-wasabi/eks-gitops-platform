@@ -1,0 +1,62 @@
+# End-to-end: build a real 3-node Kubernetes cluster in the runner, install
+# Argo CD, let it sync this commit's manifests from Git, then call the app
+# through the gateway. Same script you run locally: scripts/kind-up.sh
+name: E2E (kind)
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Argo CD sync + smoke test on kind
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create kind cluster
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          cluster_name: gitops
+          config: kind/cluster.yaml
+          wait: 120s
+
+      - name: Bring up the platform at this commit
+        run: scripts/kind-up.sh
+        env:
+          REVISION: ${{ github.sha }}
+
+      - name: Show what is running
+        if: always()
+        run: |
+          kubectl get applications -n argocd
+          kubectl get gateway,httproute -A || true
+          kubectl get pods -A -o wide
+          kubectl -n money-transfer get deploy,hpa,pdb,networkpolicy || true
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          # Surface the reason each app isn't healthy as annotations on the run,
+          # so it's visible on the PR without digging through logs.
+          kubectl -n argocd get applications -o json | jq -r '.items[] |
+            select(.status.sync.status != "Synced" or .status.health.status != "Healthy") |
+            "::error title=Argo CD app \(.metadata.name)::sync=\(.status.sync.status) health=\(.status.health.status) | " +
+            ([.status.conditions[]?.message] + [.status.operationState.message // empty] + [.status.health.message // empty]
+              | join(" | ") | gsub("\n"; " ") | .[0:900])'
+          kubectl get pods -A -o json | jq -r '.items[] |
+            select(.status.phase != "Running" and .status.phase != "Succeeded") |
+            "::error title=Pod \(.metadata.namespace)/\(.metadata.name)::\(.status.phase) " +
+            ([.status.containerStatuses[]?.state | to_entries[] | "\(.key): \(.value.reason // "") \(.value.message // "")"] | join("; ") | .[0:500])'
+          kubectl get events -A --field-selector type=Warning -o json | jq -r '.items[-15:][] |
+            "::warning title=Event \(.involvedObject.namespace)/\(.involvedObject.name)::\(.reason): \(.message | .[0:400])"'
+          kubectl -n argocd get applications -o yaml
+          kubectl get events -A --sort-by=.lastTimestamp | tail -n 80

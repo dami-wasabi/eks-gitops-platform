@@ -1,0 +1,19 @@
+# On EKS, expose the proxy through an internet-facing Network Load Balancer.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: EnvoyProxy
+      name: public-proxy
+    patch: |-
+      - op: replace
+        path: /spec/provider/kubernetes/envoyService
+        value:
+          type: LoadBalancer
+          externalTrafficPolicy: Local
+          annotations:
+            service.beta.kubernetes.io/aws-load-balancer-type: nlb
+            service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+            service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"

@@ -1,0 +1,21 @@
+# Everything Argo CD runs on the local kind cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../apps
+patches:
+  - target:
+      kind: Application
+      name: gateway
+    patch: |-
+      - op: replace
+        path: /spec/source/path
+        value: platform/gateway/overlays/kind
+  # kind's kubelets use self-signed certificates.
+  - target:
+      kind: Application
+      name: metrics-server
+    patch: |-
+      - op: replace
+        path: /spec/source/helm/valuesObject/args
+        value: ["--kubelet-insecure-tls"]

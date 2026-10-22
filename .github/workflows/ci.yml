@@ -1,0 +1,86 @@
+# Static checks: no cluster or AWS account needed.
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KUBECONFORM_VERSION: v0.8.0
+  # Schemas for CRDs (Argo CD, Gateway API, Envoy Gateway) come from the community catalog.
+  CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.17.x"
+      - run: terraform fmt -check -recursive -diff
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6
+      - run: tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: tflint --config "$GITHUB_WORKSPACE/.tflint.hcl" --format compact
+      - uses: bridgecrewio/checkov-action@c3e106d5f8f4253a6de5110efb41a080f83db294 # v12
+        with:
+          directory: terraform
+          framework: terraform
+          quiet: true
+
+  manifests:
+    name: Helm chart and manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Install kubeconform
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: helm lint
+        run: |
+          helm lint charts/money-transfer --strict
+          helm lint charts/money-transfer --strict -f charts/money-transfer/values.yaml -f charts/money-transfer/values-eks.yaml
+
+      - name: Validate rendered chart
+        run: |
+          for values in values.yaml values-eks.yaml; do
+            echo "--- charts/money-transfer with $values"
+            helm template money-transfer charts/money-transfer -f charts/money-transfer/values.yaml -f "charts/money-transfer/$values" \
+              | kubeconform -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS"
+          done
+
+      - name: Validate kustomize overlays
+        run: |
+          for dir in gitops/clusters/kind gitops/clusters/eks platform/gateway/overlays/kind platform/gateway/overlays/eks; do
+            echo "--- $dir"
+            kubectl kustomize "$dir" \
+              | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMAS"
+          done
+
+      - name: Validate bootstrap manifests
+        run: kubeconform -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS" bootstrap/root-app.yaml
+
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck scripts/*.sh

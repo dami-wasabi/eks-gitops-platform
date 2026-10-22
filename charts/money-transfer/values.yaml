@@ -1,0 +1,55 @@
+image:
+  repository: ghcr.io/dami-wasabi/money-transfer
+  # Pinned to an immutable commit-SHA tag, never `latest`. Promoting a new
+  # version is a reviewed Git change to this line (or to appVersion).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# Application settings, passed to the container as environment variables.
+config:
+  FEE_RATE: "0.02"
+  EXCHANGE_RATE: "655"
+  MIN_AMOUNT: "1"
+  MAX_AMOUNT: "10000"
+
+containerPort: 8000
+
+service:
+  port: 80
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    memory: 192Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # Only pods in this namespace (where the Envoy Gateway proxies run) may reach the app.
+  ingressNamespace: envoy-gateway-system
+
+httpRoute:
+  enabled: true
+  # Empty matches any host. Set to your domain once DNS points at the gateway,
+  # e.g. ["transfer.example.com"].
+  hostnames: []
+  parentRef:
+    name: public
+    namespace: gateway
+
+# Spread replicas across nodes and, on multi-AZ clusters, across zones.
+topologySpread:
+  enabled: true
