@@ -14,6 +14,7 @@ concurrency:
 
 env:
   KUBECONFORM_VERSION: v0.8.0
+  PROMETHEUS_VERSION: "3.15.1"
   # Schemas for CRDs (Argo CD, Gateway API, Envoy Gateway) come from the community catalog.
   CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
 
@@ -77,6 +78,20 @@ jobs:
 
       - name: Validate bootstrap manifests
         run: kubeconform -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS" bootstrap/root-app.yaml
+
+  slo-rules:
+    name: SLO rules (promtool)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install promtool
+        run: |
+          curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+      - name: Check rule syntax
+        run: promtool check rules charts/money-transfer/files/slo-rules.yaml
+      - name: Unit-test alerts (outage, slow leak, latency regression, healthy, no traffic)
+        run: promtool test rules charts/money-transfer/files/slo-tests.yaml
 
   shell:
     name: Shell scripts

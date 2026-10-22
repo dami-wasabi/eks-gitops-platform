@@ -43,11 +43,14 @@ fi
 
 scripts/wait-for-apps.sh
 scripts/smoke-test.sh
+scripts/check-monitoring.sh
 
 cat <<MSG
 
 Platform is up. Useful next steps:
   Argo CD UI:   kubectl -n argocd port-forward svc/argocd-server 8081:80   -> http://localhost:8081
+  Grafana:      kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80  -> http://localhost:3000 (admin / prom-operator)
+  Prometheus:   kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090
   Password:     kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
   The app:      scripts/smoke-test.sh --keep   (leaves a port-forward on http://localhost:8080)
   Tear down:    kind delete cluster --name $CLUSTER_NAME

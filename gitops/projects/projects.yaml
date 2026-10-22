@@ -7,11 +7,12 @@ metadata:
   name: platform
   namespace: argocd
 spec:
-  description: Cluster-wide platform components (gateway, metrics)
+  description: Cluster-wide platform components (gateway, metrics, monitoring)
   sourceRepos:
     - https://github.com/dami-wasabi/eks-gitops-platform.git
     - registry-1.docker.io/envoyproxy
     - https://kubernetes-sigs.github.io/metrics-server/
+    - https://prometheus-community.github.io/helm-charts
   destinations:
     - server: https://kubernetes.default.svc
       namespace: "*"

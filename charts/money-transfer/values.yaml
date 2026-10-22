@@ -40,6 +40,8 @@ networkPolicy:
   enabled: true
   # Only pods in this namespace (where the Envoy Gateway proxies run) may reach the app.
   ingressNamespace: envoy-gateway-system
+  # Prometheus in this namespace may scrape /metrics. Empty to disallow.
+  monitoringNamespace: monitoring
 
 httpRoute:
   enabled: true
@@ -53,3 +55,13 @@ httpRoute:
 # Spread replicas across nodes and, on multi-AZ clusters, across zones.
 topologySpread:
   enabled: true
+
+# Requires the Prometheus Operator CRDs (installed by the kube-prometheus-stack app).
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+  sloRules:
+    enabled: true
+  dashboard:
+    enabled: true
