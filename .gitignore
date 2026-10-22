@@ -1,0 +1,18 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+crash.log
+.terraform.tfstate.lock.info
+
+# Helm
+charts/*/charts/
+*.tgz
+
+# Local
+.DS_Store
+.idea/
+.vscode/
+kubeconfig*
