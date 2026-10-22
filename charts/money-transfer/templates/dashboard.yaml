@@ -1,0 +1,13 @@
+{{- if .Values.monitoring.dashboard.enabled }}
+# Picked up by the Grafana sidecar (any ConfigMap labelled grafana_dashboard=1).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "money-transfer.fullname" . }}-dashboard
+  labels:
+    {{- include "money-transfer.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  money-transfer-slo.json: |-
+{{ .Files.Get "files/dashboard.json" | indent 4 }}
+{{- end }}

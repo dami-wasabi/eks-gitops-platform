@@ -22,6 +22,7 @@ flowchart LR
                 eg[Envoy Gateway]
                 ms[metrics-server]
                 gw[Gateway 'public']
+                kps[Prometheus · Alertmanager · Grafana]
             end
             subgraph apps["Workloads"]
                 mt[money-transfer<br/>Deployment + HPA + PDB<br/>NetworkPolicy]
@@ -35,6 +36,7 @@ flowchart LR
     argocd -->|syncs| apps
     users([Users]) --> nlb --> gw -->|HTTPRoute| mt
     ghcr[(ghcr.io image<br/>pinned by commit SHA)] -.-> mt
+    kps -.->|scrapes /metrics,<br/>evaluates SLOs| mt
 ```
 
 **How a change reaches the cluster:** merge to `main` → Argo CD notices within ~3 minutes → it applies only the difference → if someone edits the cluster by hand, Argo CD reverts it (`selfHeal`).
@@ -49,6 +51,7 @@ flowchart LR
 | Access control | Two **AppProjects**: `platform` and `apps` | Workloads may only deploy from this repo into their own namespace and can't create cluster-wide resources |
 | Traffic | **Gateway API** with **Envoy Gateway** | The current Kubernetes standard for ingress (ingress-nginx was retired in 2026). One shared Gateway, apps attach with an `HTTPRoute`, and only namespaces labelled `gateway-access: public` may attach |
 | Workload | **Helm chart** for money-transfer | See below |
+| Observability | **kube-prometheus-stack** (Prometheus, Alertmanager, Grafana) | Scrapes every namespace via ServiceMonitors; the app ships its own SLO rules and dashboard with its Helm chart (see below) |
 | Environments | **Kustomize overlays** per cluster (`gitops/clusters/kind`, `gitops/clusters/eks`) | Same apps everywhere; only real differences are patched (NLB vs ClusterIP, kubelet TLS on kind, higher replica floor on EKS) |
 
 ### The money-transfer chart
@@ -60,12 +63,34 @@ flowchart LR
 - **Default-deny networking**: a NetworkPolicy lets traffic in only from the gateway proxies and out only to cluster DNS.
 - **Config changes roll pods** automatically via a checksum annotation.
 
+## SLOs and alerting
+
+The money-transfer chart ships its own reliability contract: a `ServiceMonitor`, a `PrometheusRule` with SLOs, and a Grafana dashboard. Teams own their SLOs alongside their code; the platform just runs Prometheus.
+
+| SLO (rolling 30 days) | Objective | Error budget |
+|---|---|---|
+| **Availability**: quote requests that don't fail with a 5xx | 99.5% | 0.5% |
+| **Latency**: quote requests served in under 300 ms | 99% | 1% |
+
+**Alerting uses multi-window, multi-burn-rate rules** (the method from the Google SRE Workbook) instead of "error rate > X%":
+
+| Severity | Fires when | Meaning |
+|---|---|---|
+| `page` | burn rate > 14.4 over **1h and 5m**, or > 6 over **6h and 30m** | 2% of the month's budget gone in an hour: wake someone up |
+| `ticket` | burn rate > 3 over **1d and 2h**, or > 1 over **3d and 6h** | on course to miss the SLO: fix it this week |
+
+The long window makes an alert significant (a 30-second blip can't page anyone); the short window makes it clear quickly once the problem stops. Every alert links to a [runbook](docs/runbooks/).
+
+**The alert rules are unit-tested.** [`slo-rules.yaml`](charts/money-transfer/files/slo-rules.yaml) is plain Prometheus syntax, so CI runs `promtool test rules` against [six scenarios](charts/money-transfer/files/slo-tests.yaml): a full outage must page within minutes, a slow 1% leak must raise a ticket but not page, a latency regression must page on latency only, and a healthy service or no traffic must stay silent. One test guards a classic bug: with zero errors the 5xx series doesn't exist, so a naive ratio returns *no data* instead of 0.
+
+**The dashboard** (*money-transfer / SLOs* in Grafana) shows SLO status, error budget left, burn rates against the paging thresholds, the golden signals (traffic, errors, latency percentiles), and whether a chaos experiment is injecting faults.
+
 ## CI
 
 | Workflow | What it proves |
 |---|---|
-| [`ci.yml`](.github/workflows/ci.yml) | `terraform fmt`, `validate`, `tflint`, **Checkov**; `helm lint --strict`; the rendered chart and every Kustomize overlay validated against Kubernetes and CRD schemas with **kubeconform**; `shellcheck` on the scripts |
-| [`e2e.yml`](.github/workflows/e2e.yml) | Creates a **3-node kind cluster**, installs Argo CD, has it sync **this exact commit** from GitHub, waits until every app is `Synced` and `Healthy`, then calls the live app through the Envoy gateway and checks the quote it returns |
+| [`ci.yml`](.github/workflows/ci.yml) | `terraform fmt`, `validate`, `tflint`, **Checkov**; `helm lint --strict`; the rendered chart and every Kustomize overlay validated against Kubernetes and CRD schemas with **kubeconform**; **`promtool` unit tests for the SLO alerts**; `shellcheck` on the scripts |
+| [`e2e.yml`](.github/workflows/e2e.yml) | Creates a **3-node kind cluster**, installs Argo CD, has it sync **this exact commit** from GitHub, waits until every app is `Synced` and `Healthy`, calls the live app through the Envoy gateway, then checks that **Prometheus is scraping every pod, the SLO rules are loaded and recording, and Grafana has the dashboard** |
 
 The end-to-end job runs [`scripts/kind-up.sh`](scripts/kind-up.sh), the same script you use locally, so "works on my machine" and "works in CI" are the same claim.
 
@@ -82,6 +107,7 @@ That creates the cluster, installs Argo CD, points it at this repo, waits for ev
 ```bash
 scripts/smoke-test.sh --keep                               # app on http://localhost:8080
 kubectl -n argocd port-forward svc/argocd-server 8081:80   # Argo CD UI on http://localhost:8081
+kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80   # Grafana (admin / prom-operator)
 kind delete cluster --name gitops                          # tear down
 ```
 
@@ -122,8 +148,10 @@ terraform destroy
 │   └── clusters/{kind,eks}/   # per-cluster overlays - what a root app points at
 ├── platform/gateway/          # GatewayClass, Gateway, EnvoyProxy (+ kind/eks overlays)
 ├── charts/money-transfer/     # Helm chart for the workload
+│   └── files/                 # SLO rules, promtool tests, Grafana dashboard
+├── docs/runbooks/             # what to do when each SLO alert fires
 ├── kind/cluster.yaml          # 3-node local cluster
-└── scripts/                   # kind-up, wait-for-apps, smoke-test (used by CI too)
+└── scripts/                   # kind-up, wait-for-apps, smoke-test, check-monitoring (used by CI too)
 ```
 
 ## Releasing a new version of the app
@@ -139,4 +167,5 @@ terraform destroy
 - **AWS Load Balancer Controller** + ACM certificate for HTTPS on the Gateway
 - **External Secrets Operator** reading from AWS Secrets Manager via Pod Identity
 - **Karpenter** for node autoscaling
-- **Observability**: Prometheus, Grafana and SLO alerting (separate project)
+- **Chaos experiments in CI**: inject failures under load and prove the burn-rate alerts fire
+- **Alertmanager routing** to Slack/PagerDuty, and Grafana credentials from a secret store

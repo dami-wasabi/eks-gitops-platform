@@ -1,0 +1,14 @@
+{{- if .Values.monitoring.sloRules.enabled }}
+# SLO recording rules and burn-rate alerts. The rules live in files/slo-rules.yaml
+# as plain Prometheus syntax so CI can unit-test them with promtool.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "money-transfer.fullname" . }}-slo
+  labels:
+    {{- include "money-transfer.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+{{ .Files.Get "files/slo-rules.yaml" | indent 2 }}
+{{- end }}

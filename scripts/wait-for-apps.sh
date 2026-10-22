@@ -3,7 +3,7 @@
 set -euo pipefail
 
 TIMEOUT="${TIMEOUT:-600}"
-EXPECTED=(envoy-gateway metrics-server gateway money-transfer)
+EXPECTED=(envoy-gateway metrics-server kube-prometheus-stack gateway money-transfer)
 deadline=$(( $(date +%s) + TIMEOUT ))
 
 echo "==> Waiting up to ${TIMEOUT}s for Argo CD applications"

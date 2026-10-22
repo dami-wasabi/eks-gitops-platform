@@ -1,0 +1,154 @@
+# Unit tests for the SLO rules. Run: promtool test rules charts/money-transfer/files/slo-tests.yaml
+# Generated from the scenarios below; each checks every alert so nothing fires unexpectedly.
+rule_files:
+- slo-rules.yaml
+evaluation_interval: 30s
+tests:
+- name: healthy service fires nothing
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="200"}
+    values: 0+999x300
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="503"}
+    values: 0+1x300
+  - series: http_request_duration_seconds_bucket{job="money-transfer", route="/api/quote", method="POST", le="0.3"}
+    values: 0+1000x300
+  - series: http_request_duration_seconds_count{job="money-transfer", route="/api/quote", method="POST"}
+    values: 0+1000x300
+  promql_expr_test:
+  - expr: slo:availability_errors:ratio_rate1h
+    eval_time: 2h
+    exp_samples:
+    - labels: slo:availability_errors:ratio_rate1h
+      value: 0.001
+  alert_rule_test:
+  - eval_time: 4h
+    alertname: QuoteAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 4h
+    alertname: QuoteAvailabilityBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 4h
+    alertname: QuoteLatencyBudgetBurnFast
+    exp_alerts: []
+- name: outage pages within minutes
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="200"}
+    values: 0+800x60
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="503"}
+    values: 0+200x60
+  - series: http_request_duration_seconds_bucket{job="money-transfer", route="/api/quote", method="POST", le="0.3"}
+    values: 0+1000x60
+  - series: http_request_duration_seconds_count{job="money-transfer", route="/api/quote", method="POST"}
+    values: 0+1000x60
+  alert_rule_test:
+  - eval_time: 2m
+    alertname: QuoteAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: QuoteAvailabilityBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: QuoteLatencyBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: QuoteAvailabilityBudgetBurnFast
+    exp_alerts:
+    - exp_labels:
+        severity: page
+        slo: quote-availability
+      exp_annotations:
+        summary: Quote errors are burning the 30-day availability budget fast
+        description: More than 2% of the monthly error budget is being spent per hour. At this rate the 99.5% availability SLO will be missed within days. Act now.
+        runbook_url: https://github.com/dami-wasabi/eks-gitops-platform/blob/main/docs/runbooks/quote-availability.md
+  - eval_time: 6m
+    alertname: QuoteAvailabilityBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: QuoteLatencyBudgetBurnFast
+    exp_alerts: []
+- name: slow leak raises a ticket, not a page
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="200"}
+    values: 0+990x480
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="503"}
+    values: 0+10x480
+  - series: http_request_duration_seconds_bucket{job="money-transfer", route="/api/quote", method="POST", le="0.3"}
+    values: 0+1000x480
+  - series: http_request_duration_seconds_count{job="money-transfer", route="/api/quote", method="POST"}
+    values: 0+1000x480
+  alert_rule_test:
+  - eval_time: 7h
+    alertname: QuoteAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 7h
+    alertname: QuoteAvailabilityBudgetBurnSlow
+    exp_alerts:
+    - exp_labels:
+        severity: ticket
+        slo: quote-availability
+      exp_annotations:
+        summary: Quote errors are steadily eroding the availability budget
+        description: The error rate is high enough to exhaust the monthly budget before the 30-day window ends. Investigate during working hours.
+        runbook_url: https://github.com/dami-wasabi/eks-gitops-platform/blob/main/docs/runbooks/quote-availability.md
+  - eval_time: 7h
+    alertname: QuoteLatencyBudgetBurnFast
+    exp_alerts: []
+- name: latency regression pages on latency only
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="200"}
+    values: 0+1000x60
+  - series: http_request_duration_seconds_bucket{job="money-transfer", route="/api/quote", method="POST", le="0.3"}
+    values: 0+750x60
+  - series: http_request_duration_seconds_count{job="money-transfer", route="/api/quote", method="POST"}
+    values: 0+1000x60
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: QuoteAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: QuoteAvailabilityBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: QuoteLatencyBudgetBurnFast
+    exp_alerts:
+    - exp_labels:
+        severity: page
+        slo: quote-latency
+      exp_annotations:
+        summary: Slow quotes are burning the 30-day latency budget fast
+        description: Too many quote requests are taking longer than 300 ms. At this rate the 99% latency SLO will be missed within days. Act now.
+        runbook_url: https://github.com/dami-wasabi/eks-gitops-platform/blob/main/docs/runbooks/quote-latency.md
+- name: no traffic fires nothing
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="200"}
+    values: '0x120'
+  - series: http_request_duration_seconds_count{job="money-transfer", route="/api/quote", method="POST"}
+    values: 0+0x120
+  - series: http_request_duration_seconds_bucket{job="money-transfer", route="/api/quote", method="POST", le="0.3"}
+    values: 0+0x120
+  alert_rule_test:
+  - eval_time: 1h
+    alertname: QuoteAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 1h
+    alertname: QuoteAvailabilityBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 1h
+    alertname: QuoteLatencyBudgetBurnFast
+    exp_alerts: []
+- name: zero errors reports 0, not missing data
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="money-transfer", route="/api/quote", method="POST", status="200"}
+    values: 0+1000x30
+  promql_expr_test:
+  - expr: slo:availability_errors:ratio_rate5m
+    eval_time: 20m
+    exp_samples:
+    - labels: slo:availability_errors:ratio_rate5m
+      value: 0

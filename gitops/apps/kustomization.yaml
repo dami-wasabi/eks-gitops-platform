@@ -4,5 +4,6 @@ resources:
   - ../projects
   - envoy-gateway.yaml
   - metrics-server.yaml
+  - kube-prometheus-stack.yaml
   - gateway.yaml
   - money-transfer.yaml
